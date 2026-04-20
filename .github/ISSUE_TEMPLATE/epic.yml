@@ -1,0 +1,30 @@
+name: Epic
+description: Propose a large initiative or project spanning multiple features
+title: "Epic: [Initiative Name]"
+labels: ["epic"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective & Business Value
+      description: What are we trying to achieve, and why is it valuable to the business or user?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: High-level overview of what is in-scope and out-of-scope for this Epic.
+      value: |
+        **In Scope:**
+        - 
+        
+        **Out of Scope:**
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies & Risks
+      description: Are there any cross-team dependencies, blocked work, or significant risks?
