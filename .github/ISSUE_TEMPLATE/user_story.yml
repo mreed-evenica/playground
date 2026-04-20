@@ -1,0 +1,19 @@
+name: User Story
+description: Propose a new feature or user story
+title: "Story: [Your Title Here]"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User Story
+      description: As a [role], I want to [action] so that [benefit].
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What must be true for this to be considered done?
+    validations:
+      required: true
