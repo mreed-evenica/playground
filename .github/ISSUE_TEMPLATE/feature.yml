@@ -1,0 +1,29 @@
+name: Feature
+description: Propose a new feature or shippable enhancement
+title: "Feature: [Feature Name]"
+labels: ["feature"]
+body:
+  - type: textarea
+    id: problem-statement
+    attributes:
+      label: Context / Problem Statement
+      description: What problem are we solving for the user?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How will this feature solve the problem? Include UX/UI designs if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What must be true for this feature to be considered complete?
+      value: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+    validations:
+      required: true
