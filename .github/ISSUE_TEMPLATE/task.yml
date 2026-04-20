@@ -1,0 +1,27 @@
+name: Task / Tech Debt
+description: Create a technical task, chore, or address tech debt
+title: "Task: [Brief description]"
+labels: ["task"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Task Description
+      description: What needs to be done and why?
+    validations:
+      required: true
+  - type: textarea
+    id: action-items
+    attributes:
+      label: Action Items
+      description: Break down the specific steps required to complete this task.
+      value: |
+        - [ ] Step 1
+        - [ ] Step 2
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any related links, architectural notes, or constraints here.
