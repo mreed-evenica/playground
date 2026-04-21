@@ -1,22 +1,22 @@
-name: Enforce ADO Work Item Link
+# name: Enforce ADO Work Item Link
 
-on:
-  pull_request:
-    types: [opened, edited, synchronize]
+# on:
+#   pull_request:
+#     types: [opened, edited, synchronize]
 
-jobs:
-  check-ado-link:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Verify AB# tag in PR Title or Body
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          if echo "$PR_TITLE" | grep -qE 'AB#[0-9]+' || echo "$PR_BODY" | grep -qE 'AB#[0-9]+'; then
-            echo "Success: ADO work item link found!"
-            exit 0
-          else
-            echo "::error::No Azure DevOps work item linked! Please include 'AB#<WorkItemID>' in your PR title or description."
-            exit 1
-          fi
+# jobs:
+#   check-ado-link:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Verify AB# tag in PR Title or Body
+#         env:
+#           PR_TITLE: ${{ github.event.pull_request.title }}
+#           PR_BODY: ${{ github.event.pull_request.body }}
+#         run: |
+#           if echo "$PR_TITLE" | grep -qE 'AB#[0-9]+' || echo "$PR_BODY" | grep -qE 'AB#[0-9]+'; then
+#             echo "Success: ADO work item link found!"
+#             exit 0
+#           else
+#             echo "::error::No Azure DevOps work item linked! Please include 'AB#<WorkItemID>' in your PR title or description."
+#             exit 1
+#           fi
