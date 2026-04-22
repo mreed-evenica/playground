@@ -1,0 +1,68 @@
+name: Auto-Link & Traceability
+
+on:
+  pull_request:
+    types: [opened, edited, synchronized]
+
+jobs:
+  link-and-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: read
+    steps:
+      - name: "Link Branch to Issue"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branchName = context.payload.pull_request.head.ref;
+            const prNumber = context.payload.pull_request.number;
+            
+            // 1. Extract ID from branch (expects format like 'feature/123-name' or '123-fix')
+            const match = branchName.match(/(?:^|\/|#)(\d+)/);
+            
+            if (match) {
+              const issueId = match[1];
+              console.log(`Found Issue ID ${issueId} in branch name.`);
+
+              try {
+                // 2. Verify the issue exists
+                await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueId,
+                });
+
+                // 3. Link it by adding "Closes #ID" to the PR description if not already there
+                const body = context.payload.pull_request.body || "";
+                if (!body.includes(`#${issueId}`)) {
+                  await github.rest.pulls.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    body: body + `\n\nAutomatically linked to Issue #${issueId}`
+                  });
+                }
+              } catch (e) {
+                core.setFailed(`❌ Branch references Issue #${issueId}, but that issue does not exist.`);
+                return;
+              }
+            }
+
+            // 4. Final verification: Check sidebar/description for ANY valid link
+            const query = `query($owner:String!, $name:String!, $number:Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  closingIssuesReferences(first: 5) { totalCount }
+                }
+              }
+            }`;
+            const result = await github.graphql(query, {
+              owner: context.repo.owner,
+              name: context.repo.repo,
+              number: prNumber
+            });
+
+            if (result.repository.pullRequest.closingIssuesReferences.totalCount === 0) {
+              core.setFailed("❌ No valid issue linked. Use Issue ID in branch name or link via Development sidebar.");
+            }
