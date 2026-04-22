@@ -2,54 +2,62 @@ name: Auto-Link & Traceability
 
 on:
   pull_request:
-    types: [opened, edited, synchronized]
+    # 'edited' catches changes to the description (Closes #123)
+    types: [opened, edited, synchronized, reopened]
+  # Allows you to manually click "Re-run" from the PR if you link via sidebar
+  workflow_dispatch: 
+
+permissions:
+  pull-requests: write
+  issues: read
+  contents: read
 
 jobs:
   link-and-verify:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      issues: read
     steps:
-      - name: "Link Branch to Issue"
+      - name: "Link and Verify"
         uses: actions/github-script@v7
         with:
           script: |
             const branchName = context.payload.pull_request.head.ref;
             const prNumber = context.payload.pull_request.number;
+            const body = context.payload.pull_request.body || "";
             
-            // 1. Extract ID from branch (expects format like 'feature/123-name' or '123-fix')
+            // 1. Regex to find ID in branch name (e.g., feature/123-login)
             const match = branchName.match(/(?:^|\/|#)(\d+)/);
             
             if (match) {
               const issueId = match[1];
-              console.log(`Found Issue ID ${issueId} in branch name.`);
-
+              
               try {
-                // 2. Verify the issue exists
+                // Verify issue exists
                 await github.rest.issues.get({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueId,
                 });
 
-                // 3. Link it by adding "Closes #ID" to the PR description if not already there
-                const body = context.payload.pull_request.body || "";
+                // 2. Auto-Link: If the ID isn't in the body, add 'Closes #ID' 
+                // This creates the official GitHub link automatically.
                 if (!body.includes(`#${issueId}`)) {
+                  const newBody = `Development Link: Closes #${issueId}\n\n${body}`;
                   await github.rest.pulls.update({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: prNumber,
-                    body: body + `\n\nAutomatically linked to Issue #${issueId}`
+                    body: newBody
                   });
+                  console.log(`Auto-linked Issue #${issueId} to PR #${prNumber}`);
                 }
               } catch (e) {
-                core.setFailed(`❌ Branch references Issue #${issueId}, but that issue does not exist.`);
+                core.setFailed(`❌ Branch references Issue #${issueId}, but it doesn't exist.`);
                 return;
               }
             }
 
-            // 4. Final verification: Check sidebar/description for ANY valid link
+            // 3. Final Verification: Check for ANY formal links
+            // We use GraphQL to check the 'Development' sidebar (closingIssuesReferences)
             const query = `query($owner:String!, $name:String!, $number:Int!) {
               repository(owner: $owner, name: $name) {
                 pullRequest(number: $number) {
@@ -57,12 +65,16 @@ jobs:
                 }
               }
             }`;
+            
             const result = await github.graphql(query, {
               owner: context.repo.owner,
               name: context.repo.repo,
               number: prNumber
             });
 
-            if (result.repository.pullRequest.closingIssuesReferences.totalCount === 0) {
-              core.setFailed("❌ No valid issue linked. Use Issue ID in branch name or link via Development sidebar.");
+            const count = result.repository.pullRequest.closingIssuesReferences.totalCount;
+            if (count === 0) {
+              core.setFailed("❌ Traceability Failed: No valid issue linked. Please name your branch with the Issue ID or link via the Development sidebar.");
+            } else {
+              console.log(`✅ Traceability Verified: ${count} issue(s) linked.`);
             }
