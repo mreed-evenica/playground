@@ -22,14 +22,12 @@ jobs:
           script: |
             const branchName = context.payload.pull_request.head.ref;
             const prNumber = context.payload.pull_request.number;
-            const body = context.payload.pull_request.body || "";
+            let body = context.payload.pull_request.body || "";
             
-            // 1. Regex to find ID in branch name (e.g., feature/123-login)
             const match = branchName.match(/(?:^|\/|#)(\d+)/);
             
             if (match) {
               const issueId = match[1];
-              
               try {
                 // Verify issue exists
                 await github.rest.issues.get({
@@ -38,22 +36,44 @@ jobs:
                   issue_number: issueId,
                 });
 
-                // 2. Auto-Link: If the ID isn't in the body, add 'Closes #ID' 
-                // This creates the official GitHub link automatically.
+                // Auto-Link logic
                 if (!body.includes(`#${issueId}`)) {
-                  const newBody = `Development Link: Closes #${issueId}\n\n${body}`;
                   await github.rest.pulls.update({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: prNumber,
-                    body: newBody
+                    body: `Linked to Issue #${issueId}\n\n${body}`
                   });
-                  console.log(`Auto-linked Issue #${issueId} to PR #${prNumber}`);
+                  console.log(`Auto-linked Issue #${issueId}. Waiting for GitHub to sync...`);
+                  
+                  // ⏳ THE FIX: Wait 3 seconds for GitHub to index the new link
+                  await new Promise(r => setTimeout(r, 3000));
                 }
               } catch (e) {
-                core.setFailed(`❌ Branch references Issue #${issueId}, but it doesn't exist.`);
+                core.setFailed(`❌ Issue #${issueId} doesn't exist.`);
                 return;
               }
+            }
+
+            // Final Verification Check
+            const query = `query($owner:String!, $name:String!, $number:Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  closingIssuesReferences(first: 5) { totalCount }
+                }
+              }
+            }`;
+            
+            const result = await github.graphql(query, {
+              owner: context.repo.owner,
+              name: context.repo.repo,
+              number: prNumber
+            });
+
+            if (result.repository.pullRequest.closingIssuesReferences.totalCount === 0) {
+               core.setFailed("❌ Link not detected yet. If you just linked it, please wait a moment and re-run this check.");
+            } else {
+              console.log("✅ Traceability Verified.");
             }
 
             // 3. Final Verification: Check for ANY formal links
