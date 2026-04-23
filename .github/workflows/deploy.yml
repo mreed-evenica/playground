@@ -41,29 +41,31 @@ jobs:
       - name: Generate AI Release Summary
         id: ai
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # THIS IS THE FIX: Tell Linux to handle special characters (bullets/emojis)
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
         run: |
           set -euo pipefail
           
           # 1. Gather context
-          PR_DATA=$(gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}')
+          PR_DATA=$(gh pr list --state merged --limit 3 --json title --template '{{range .}}{{.title}}, {{end}}')
+          
+          echo "Launching Autopilot Agent..."
 
-          echo "Launching Copilot Agent in Headless Mode..."
+          # 2. Run the command exactly as you did locally
+          # We capture EVERYTHING to a file first to avoid shell pipe issues
+          copilot -p "Summarize these PRs into 3 professional bullets: $PR_DATA" --autopilot --allow-all-tools --no-auto-update > raw_output.txt 2>&1 || true
 
-          # 2. The Winning Command
-          # --yes: Bypasses the 'Do you want to execute this plan?' confirmation
-          # --allow-all-tools: Unlocks the internal agent tools
-          # < /dev/null: Ensures the terminal doesn't hang
-          SUMMARY_OUTPUT=$(copilot -p "Summarize: 1. Added a logo 2. Fixed a typo" --autopilot --allow-all-tools)
+          # 3. Use a safer 'awk' parser instead of 'grep' 
+          # This looks for the actual summary lines and ignores the 'Thinking' logs
+          CLEAN_SUMMARY=$(awk '/^[*•-]/ {print}' raw_output.txt | head -n 5)
 
-          # 3. Output Cleaning
-          # Agentic output often starts with "I will use the following tools..."
-          # This filter grabs only the actual bullet points for ADO
-          CLEAN_SUMMARY=$(echo "$SUMMARY_OUTPUT" | grep -E "^\s*[\*\-•]" | sed 's/^[[:space:]]*//' | head -n 5)
-
+          # 4. Final Fail-safe
           if [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="• Successfully deployed updates including multi-region auth, database stability, and security header compliance."
+             echo "AI output parsing failed, using raw data fallback."
+             CLEAN_SUMMARY="• Successfully deployed: $PR_DATA"
           fi
 
           {
