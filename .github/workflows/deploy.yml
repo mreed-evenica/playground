@@ -38,41 +38,91 @@ jobs:
         run: npm i -g @github/copilot
 
       # 2. Run with the "Agentic" Configuration
-      - name: Generate AI Release Summary
+      - name: Generate AI Traceability Summary
         id: ai
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_RELEASE_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # THIS IS THE FIX: Tell Linux to handle special characters (bullets/emojis)
+          ADO_PAT: ${{ secrets.ADO_PAT }}
           LANG: en_US.UTF-8
-          LC_ALL: en_US.UTF-8
         run: |
           set -euo pipefail
           
-          # 1. Gather context
-          PR_DATA=$(gh pr list --state merged --limit 3 --json title --template '{{range .}}{{.title}}, {{end}}')
+          # 1. Get the boundary (Tag to HEAD)
+          git fetch --tags --force
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          RANGE="${LAST_TAG:+$LAST_TAG..}HEAD"
+          echo "Analyzing range: $RANGE"
+
+          # 2. Extract PR data and Work Item IDs (AB# references)
+          # We grab the PR number, title, and body for the AI
+          PR_JSON=$(gh pr list --state merged --search "merged:>=$(git log -1 --format=%aI ${LAST_TAG:-HEAD~10})" --json number,title,body)
           
-          echo "Launching Autopilot Agent..."
+          # Extract all AB# IDs into a comma-separated list for ADO linking
+          WORK_ITEM_IDS=$(echo "$PR_JSON" | grep -o 'AB#[0-9]\+' | sed 's/AB#//' | sort -u | tr '\n' ',' | sed 's/,$//')
+          echo "Found Work Items: $WORK_ITEM_IDS"
+          echo "WORK_ITEM_IDS=$WORK_ITEM_IDS" >> "$GITHUB_ENV"
 
-          # 2. Run the command exactly as you did locally
-          # We capture EVERYTHING to a file first to avoid shell pipe issues
-          copilot -p "Summarize these PRs into 3 professional bullets: $PR_DATA" --autopilot --allow-all-tools --no-auto-update > raw_output.txt 2>&1 || true
+          # 3. Format PR data for the Agent
+          # We want a list: "PR #123: Title - Body"
+          AGENT_CONTEXT=$(echo "$PR_JSON" | jq -r '.[] | "PR #\(.number): \(.title) | \(.body)"')
 
-          # 3. Use a safer 'awk' parser instead of 'grep' 
-          # This looks for the actual summary lines and ignores the 'Thinking' logs
-          CLEAN_SUMMARY=$(awk '/^[*•-]/ {print}' raw_output.txt | head -n 5)
+          # 4. Agentic Prompt: Requesting a "Per-PR" breakdown
+          PROMPT="Analyze these PRs. For EACH PR, provide a single line starting with the PR number that describes its specific impact on the production environment.
+          Example format:
+          - PR #7275: Resolves SQL pool exhaustion to prevent OOM crashes.
+          
+          Context:
+          $AGENT_CONTEXT"
 
-          # 4. Final Fail-safe
-          if [ -z "$CLEAN_SUMMARY" ]; then
-             echo "AI output parsing failed, using raw data fallback."
-             CLEAN_SUMMARY="• Successfully deployed: $PR_DATA"
-          fi
+          # Run Autopilot
+          copilot -p "$PROMPT" --autopilot --allow-all-tools --no-auto-update > raw_output.txt 2>&1 || true
+          
+          # Extract the lines that look like our requested format
+          CLEAN_SUMMARY=$(grep -E "^- PR #[0-9]+" raw_output.txt | sed 's/^[[:space:]]*//')
 
           {
             echo 'AI_SUMMARY<<EOF'
             echo "$CLEAN_SUMMARY"
             echo 'EOF'
           } >> "$GITHUB_ENV"
+
+      - name: Link Work Items in ADO
+        if: env.WORK_ITEM_IDS != ''
+        env:
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          WORK_ITEM_IDS: ${{ env.WORK_ITEM_IDS }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releaseId = "${{ github.event.inputs.release_id }}";
+            const ids = process.env.WORK_ITEM_IDS.split(',');
+            const auth = Buffer.from(`:${process.env.ADO_PAT}`).toString('base64');
+            
+            for (const id of ids) {
+              console.log(`Linking AB#${id} to Deployment Ticket ${releaseId}`);
+              const url = `${process.env.ADO_ORG_URL}/_apis/wit/workitems/${releaseId}/?api-version=7.0`;
+              
+              // This 'add' operation creates a 'Related' link in Azure DevOps
+              const body = [{
+                "op": "add",
+                "path": "/relations/-",
+                "value": {
+                  "rel": "System.LinkTypes.Hierarchy-Forward", // Or 'System.LinkTypes.Related'
+                  "url": `${process.env.ADO_ORG_URL}/_apis/wit/workitems/${id}`,
+                  "attributes": { "comment": "Automatically linked via GitHub Deployment" }
+                }
+              }];
+
+              await fetch(url, {
+                method: 'PATCH',
+                headers: { 
+                  'Authorization': `Basic ${auth}`, 
+                  'Content-Type': 'application/json-patch+json' 
+                },
+                body: JSON.stringify(body)
+              });
+            }
       - name: Sync to Azure DevOps
         if: success()
         env:
