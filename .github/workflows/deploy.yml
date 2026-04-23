@@ -33,16 +33,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Collect the data into a file
-          gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}' > context.txt
+          # 1. Collect and sanitize data (Remove newlines so it's one long string)
+          gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}} | {{end}}' > context.txt
           
-          echo "Prompting Copilot with file context..."
+          # 2. Clean up any characters that break shell commands (like double quotes)
+          SAFE_CONTEXT=$(cat context.txt | tr -d '"' | tr '\n' ' ')
 
-          # 2. Feed the file content to Copilot
-          # Using 'cat' to push the file content into the prompt
-          RAW_OUTPUT=$(gh copilot explain --prompt "Summarize the changes found in this text into 3 bullets: $(cat context.txt)") || echo "AI Summary failed"
+          echo "Prompting Copilot..."
 
-          # 3. Clean and Export
+          # 3. Use the -p flag directly as suggested by the error message
+          # This is the 'official' way to do a non-interactive prompt
+          RAW_OUTPUT=$(gh copilot -p "Summarize these changes into 3 bullets for a project manager: $SAFE_CONTEXT") || echo "AI Summary failed"
+
+          # 4. Clean and Export
           CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "installed successfully" | sed '/^$/d')
 
           {
