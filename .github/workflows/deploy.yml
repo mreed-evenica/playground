@@ -33,35 +33,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 1. Gather the PR context (Data source)
           git fetch --tags --force
-          # Find the most recent tag
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
-          if [ -z "$LAST_TAG" ]; then
-            echo "No tags found. Collecting recent PRs."
-            PR_LIST=$(gh pr list --state merged --limit 10 --json title,body --template '{{range .}}- {{.title}}: {{.body}}{{"\n"}}{{end}}')
+          if [ -n "$LAST_TAG" ]; then
+             # Get PRs merged since the last tag
+             PR_DATA=$(gh pr list --state merged --search "merged:>=$(git log -1 --format=%aI $LAST_TAG)" --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}')
           else
-            echo "Last release was $LAST_TAG. Finding PRs merged since then..."
-            
-            # 1. Get the list of merge commit SHAs between the last tag and current HEAD
-            # 2. Use those SHAs to fetch the specific PR details
-            SHAS=$(git log $LAST_TAG..HEAD --merges --format=%H)
-            
-            PR_LIST=""
-            for sha in $SHAS; do
-              PR_DATA=$(gh pr list --search "$sha" --state merged --json title,body --template '{{range .}}- {{.title}}: {{.body}}{{"\n"}}{{end}}')
-              PR_LIST="$PR_LIST$PR_DATA"
-            done
+             # Fallback if no tag exists
+             PR_DATA=$(gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}')
           fi
 
-          if [ -z "$PR_LIST" ]; then
-             CLEAN_SUMMARY="No new pull requests identified since $LAST_TAG."
-          else
-             INSTRUCTION="Summarize these merged pull requests into a professional 3-bullet list for a project manager. Focus on business value and impact: $PR_LIST"
-             RAW_SUMMARY=$(gh copilot -p "$INSTRUCTION") || echo "AI generation pending"
-             CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | sed '/^$/d')
-          fi
+          # 2. Programmatic Execution (Following GitHub Docs)
+          # We use 'explain' because it is designed to return text descriptions.
+          # We use the -p/--prompt flag to pass our context.
+          echo "Consulting Copilot CLI..."
+          
+          # The '|| true' ensures the workflow doesn't exit 1 if the AI is busy
+          RAW_OUTPUT=$(gh copilot explain --prompt "Summarize these PRs into 3 professional bullet points for a project manager: $PR_DATA") || echo "AI Summary unavailable"
 
+          # 3. Clean the 'Terminal' fluff
+          # Programmatic mode still sometimes outputs 'Checking for updates'
+          CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "Checking for updates" | grep -v "installed successfully" | sed '/^$/d')
+
+          # Environment export
           {
             echo 'AI_SUMMARY<<EOF'
             echo "$CLEAN_SUMMARY"
