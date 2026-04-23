@@ -40,7 +40,7 @@ jobs:
 
           # 2. Use a PIPE. This bypasses the shell's argument parser entirely.
           # We use 'explain' which is designed to take the prompt and then wait for input.
-          RAW_OUTPUT=$(cat context.txt | gh copilot explain --prompt "Summarize these changes into 3 professional bullet points for a project manager.") || echo "AI Summary failed"
+          RAW_OUTPUT=$(cat context.txt | copilot -p "Summarize these changes into 3 professional bullet points for a project manager.") || echo "AI Summary failed"
 
           # 3. Clean the terminal metadata
           CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "installed successfully" | grep -v "Checking for updates" | sed '/^$/d')
