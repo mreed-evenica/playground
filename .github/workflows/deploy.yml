@@ -55,7 +55,7 @@ jobs:
           # --yes: Bypasses the 'Do you want to execute this plan?' confirmation
           # --allow-all-tools: Unlocks the internal agent tools
           # < /dev/null: Ensures the terminal doesn't hang
-          SUMMARY_OUTPUT=$(copilot --prompt "Summarize these PRs into 3 professional bullets for a manager: $PR_DATA" --allow-all-tools --yes < /dev/null)
+          SUMMARY_OUTPUT=$(copilot --prompt "Summarize these PRs into 3 professional bullets for a manager: $PR_DATA" --allow-all-tools --allow-all-paths < /dev/null)
 
           # 3. Output Cleaning
           # Agentic output often starts with "I will use the following tools..."
