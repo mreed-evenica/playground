@@ -15,11 +15,10 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  id-token: write
 
 jobs:
   deploy:
-    name: Deploy & Summarize
+    name: Deploy and Summarize
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.target_env }}
     
@@ -27,32 +26,32 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Necessary for Copilot to see history
+          fetch-depth: 0 
 
       - name: Generate AI Release Summary
         id: ai
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Install Copilot CLI extension
-          gh extension install github/gh-copilot
+          echo "Copilot is analyzing changes natively..."
           
-          echo "🤖 Copilot is analyzing changes..."
+          # Native 2026 Syntax: uses the built-in gh copilot command
+          # The --prompt flag ensures non-interactive execution
+          RAW_SUMMARY=$(gh copilot explain --prompt "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value." --yes)
           
-          # Get the summary from Copilot CLI
-          # We use 'explain' with a targeted prompt for the PM audience
-          RAW_SUMMARY=$(gh copilot explain "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager in Azure DevOps. Focus on business value.")
-          
-          # Clean up and escape for GitHub Env
+          if [ -z "$RAW_SUMMARY" ]; then
+            RAW_SUMMARY="No automated summary could be generated."
+          fi
+
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
           echo "$RAW_SUMMARY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Execute Deployment
         run: |
-          echo "🚀 Deploying to ${{ github.event.inputs.target_env }}..."
-          # Insert your actual deployment commands here
-          sleep 5 
+          echo "Deploying to ${{ github.event.inputs.target_env }}..."
+          # Insert actual deployment commands here
+          sleep 2
 
       - name: Sync to Azure DevOps
         if: success()
@@ -69,7 +68,7 @@ jobs:
             const auth = Buffer.from(`:${pat}`).toString('base64');
             
             const commentBody = {
-              text: `### 🚀 Deployment Successful\n\n**Environment:** ${{ github.event.inputs.target_env }}\n**Triggered By:** ${context.actor}\n\n**🤖 AI Summary of Changes:**\n${summary}\n\n*View deployment in [GitHub Actions](${context.payload.repository.html_url}/actions/runs/${context.runId})*`
+              text: `### Deployment Successful\n\n**Environment:** ${{ github.event.inputs.target_env }}\n**Triggered By:** ${context.actor}\n\n**AI Summary of Changes:**\n${summary}\n\n*View deployment in [GitHub Actions](${context.payload.repository.html_url}/actions/runs/${context.runId})*`
             };
 
             try {
@@ -83,7 +82,7 @@ jobs:
               });
 
               if (!response.ok) throw new Error(`ADO API Error: ${response.status}`);
-              console.log("✅ Successfully updated ADO Release Item.");
+              console.log("Successfully updated ADO Release Item.");
             } catch (err) {
-              core.setFailed(`❌ Failed to update ADO: ${err.message}`);
+              core.setFailed(`Failed to update ADO: ${err.message}`);
             }
