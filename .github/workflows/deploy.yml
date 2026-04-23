@@ -31,27 +31,35 @@ jobs:
       - name: Generate AI Release Summary
         id: ai
         env:
+          # Use both to ensure the CLI and the API are satisfied
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch --tags --force
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
-          echo "Generating summary..."
-
-          # We follow the CLI's hint: Use the -p flag and tell the agent exactly what to summarize.
+          # Set instruction based on history
           if [ -z "$LAST_TAG" ]; then
-            # Summarize the last 10 commits if no tags exist
-            RAW_SUMMARY=$(gh copilot -p "Summarize the changes in the git range HEAD~10..HEAD")
+            INSTRUCTION="Summarize the last 5 commits in this repo into 3 bullet points for a project manager."
           else
-            # Summarize since the last tag
-            RAW_SUMMARY=$(gh copilot -p "Summarize the changes in the git range $LAST_TAG..HEAD")
+            INSTRUCTION="Summarize changes between $LAST_TAG and HEAD into 3 bullet points for a project manager."
           fi
+
+          echo "Requesting summary from Copilot..."
+
+          # We use the 'explain' command with the --prompt flag.
+          # To prevent the 'silent fail', we disable the interactive update check
+          # and force the output to a temporary file.
+          gh config set prompt disabled
           
-          # Clean up the output to remove the CLI's installation success messages
-          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | grep -v "Checking for updates")
+          gh copilot explain -p "$INSTRUCTION" > raw_summary.txt 2>&1 || echo "CLI encountered an error" > raw_summary.txt
+
+          # Clean the output: Remove installation messages and metadata
+          # This ensures only the AI's words reach ADO
+          CLEAN_SUMMARY=$(grep -v "Copilot CLI" raw_summary.txt | grep -v "installed successfully" | grep -v "Checking for updates" | sed '/^$/d')
 
           if [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="No automated summary could be generated for this deployment."
+            CLEAN_SUMMARY="Automated summary could not be generated. Please review PRs manually."
           fi
 
           {
