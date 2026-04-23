@@ -31,16 +31,19 @@ jobs:
       - name: Generate AI Release Summary
         id: ai
         env:
+          # The agent needs this to authenticate and read repo data
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Copilot is analyzing changes natively..."
           
-          # Use gh copilot without the 'explain' or 'suggest' subcommands.
-          # The -p flag triggers the agent to perform the task described in the string.
-          RAW_SUMMARY=$(gh copilot -p "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value.")
+          # Use --no-interactive to force the agent to run without user input.
+          # Use -p to provide the specific instruction.
+          # We use || true to prevent the whole job from crashing if the AI fails.
+          RAW_SUMMARY=$(gh copilot -p "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value." --no-interactive) || echo "AI Summary generation failed."
           
-          if [ -z "$RAW_SUMMARY" ]; then
-            RAW_SUMMARY="No automated summary could be generated for this deployment."
+          if [ -z "$RAW_SUMMARY" ] || [ "$RAW_SUMMARY" == "AI Summary generation failed." ]; then
+            RAW_SUMMARY="No automated summary could be generated for this deployment. Please check the PR history manually."
           fi
 
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
