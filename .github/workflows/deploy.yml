@@ -1,38 +1,60 @@
-name: Manual Production Release
+name: Manual Release
 
 on:
-  # This enables the "Run workflow" button in the Actions tab
   workflow_dispatch:
     inputs:
-      reason:
-        description: 'Reason for deployment (e.g., Weekly Release)'
+      release_id:
+        description: 'ADO Release Work Item ID (e.g., 456)'
         required: true
-        default: 'Scheduled Deployment'
+      target_env:
+        description: 'Target Environment'
+        type: choice
+        options: [Production, Staging]
+        default: 'Production'
+
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
 
 jobs:
   deploy:
-    name: Deploy to Production
+    name: Deploy & Summarize
     runs-on: ubuntu-latest
-    environment: Production  # Triggers the Required Reviewer gate
+    environment: ${{ github.event.inputs.target_env }}
     
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches all history so we can see what changed
+          fetch-depth: 0 # Necessary for Copilot to see history
 
-      - name: Identify Changes (Traceability)
-        id: vars
+      - name: Generate AI Release Summary
+        id: ai
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # This pulls all AB# IDs from commits since the last successful deployment
-          echo "deploy_reason=${{ github.event.inputs.reason }}" >> $GITHUB_ENV
+          # Install Copilot CLI extension
+          gh extension install github/gh-copilot
+          
+          echo "🤖 Copilot is analyzing changes..."
+          
+          # Get the summary from Copilot CLI
+          # We use 'explain' with a targeted prompt for the PM audience
+          RAW_SUMMARY=$(gh copilot explain "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager in Azure DevOps. Focus on business value.")
+          
+          # Clean up and escape for GitHub Env
+          echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
+          echo "$RAW_SUMMARY" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Execute Deployment
         run: |
-          echo "Deploying to Production environment..."
-          # Insert your actual deployment scripts here (AWS, Azure, etc.)
+          echo "🚀 Deploying to ${{ github.event.inputs.target_env }}..."
+          # Insert your actual deployment commands here
+          sleep 5 
 
-      - name: Notify Azure DevOps
+      - name: Sync to Azure DevOps
         if: success()
         env:
           ADO_PAT: ${{ secrets.ADO_PAT }}
@@ -40,7 +62,28 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // This script pings ADO to mark the release as successful
-            console.log("Deployment successful. Updating ADO items...");
-            // In a full POC, you'd parse the commit messages for AB#IDs 
-            // and post a comment like: "Released in Production via Manual Trigger"
+            const releaseId = "${{ github.event.inputs.release_id }}";
+            const summary = process.env.AI_SUMMARY;
+            const orgUrl = process.env.ADO_ORG_URL;
+            const pat = process.env.ADO_PAT;
+            const auth = Buffer.from(`:${pat}`).toString('base64');
+            
+            const commentBody = {
+              text: `### 🚀 Deployment Successful\n\n**Environment:** ${{ github.event.inputs.target_env }}\n**Triggered By:** ${context.actor}\n\n**🤖 AI Summary of Changes:**\n${summary}\n\n*View deployment in [GitHub Actions](${context.payload.repository.html_url}/actions/runs/${context.runId})*`
+            };
+
+            try {
+              const response = await fetch(`${orgUrl}/_apis/wit/workitems/${releaseId}/comments?api-version=7.0-preview.3`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Basic ${auth}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(commentBody)
+              });
+
+              if (!response.ok) throw new Error(`ADO API Error: ${response.status}`);
+              console.log("✅ Successfully updated ADO Release Item.");
+            } catch (err) {
+              core.setFailed(`❌ Failed to update ADO: ${err.message}`);
+            }
