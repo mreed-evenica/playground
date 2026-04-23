@@ -33,35 +33,31 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Ensure we have tags available for comparison
+          # 1. Fetch tags to ensure comparison baseline
           git fetch --tags --force
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
           if [ -z "$LAST_TAG" ]; then
-            echo "No previous tags found. Summarizing all commits instead."
             PROMPT="Summarize all commits in this repository into a 3-bullet point list for a project manager. Focus on business value."
           else
-            echo "Summarizing changes since $LAST_TAG"
             PROMPT="Summarize all changes between $LAST_TAG and HEAD into a 3-bullet point list for a project manager. Focus on business value."
           fi
 
-          # 2. Native 2026 Programmatic Command
-          # Using only -p. The CLI handles the 'non-interactive' state automatically.
-          RAW_SUMMARY=$(gh copilot -p "$PROMPT")
+          # 2. Force the 'Yes' confirmation through a pipe
+          # The 'yes' command continuously sends 'y' to the CLI to bypass prompts
+          RAW_SUMMARY=$(yes | gh copilot -p "$PROMPT")
           
-          # 3. Handle output
-          if [ -z "$RAW_SUMMARY" ]; then
-            RAW_SUMMARY="Automated summary generation returned no results."
+          # 3. Clean the output (Copilot CLI sometimes adds terminal headers)
+          # We remove lines starting with '?' or '✓' to keep it professional for ADO
+          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v '?' | grep -v '✓' | sed '1,2d')
+
+          if [ -z "$CLEAN_SUMMARY" ]; then
+            CLEAN_SUMMARY="Automated summary generation returned no results."
           fi
 
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
-          echo "$RAW_SUMMARY" >> $GITHUB_ENV
+          echo "$CLEAN_SUMMARY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-      - name: Execute Deployment
-        run: |
-          echo "Deploying to ${{ github.event.inputs.target_env }}..."
-          # Insert actual deployment commands here
-          sleep 2
 
       - name: Sync to Azure DevOps
         if: success()
