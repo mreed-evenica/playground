@@ -79,7 +79,7 @@ jobs:
           AGENT_CONTEXT=$(echo "$PR_JSON" | jq -r '.[] | "PR #\(.number): \(.title) | \(.body)"' | tr -d '"')
 
           # 5. Autopilot Prompt
-          PROMPT="For each PR provided, write a one-sentence summary of its production impact.
+          PROMPT="For each PR provided, write a short summary of the work completed. 
           Format: - PR #NUMBER: [Summary]
           
           Context:
@@ -189,3 +189,23 @@ jobs:
             } catch (err) {
               console.error("Failed to update ADO:", err.message);
             }
+            
+      - name: Create and Push Release Tag
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. Generate a unique tag name based on the date and run number
+          # Example: v2026.04.23-run15
+          NEW_TAG="v$(date +'%Y.%m.%d')-run${{ github.run_number }}"
+          echo "Sealing release with tag: $NEW_TAG"
+  
+          # 2. Configure Git to allow the runner to push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+  
+          # 3. Create the tag and push it
+          git tag -a "$NEW_TAG" -m "Automated deployment tag for Release ${{ github.event.inputs.release_id }}"
+          git push origin "$NEW_TAG"
+  
+            echo "Deployment cycle complete. Future runs will start from $NEW_TAG."
