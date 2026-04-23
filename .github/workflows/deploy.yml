@@ -47,8 +47,8 @@ jobs:
           # This prevents the shell from breaking on special characters like '>' or '#'
           echo "Consulting Copilot CLI via Stream..."
           
-          RAW_OUTPUT=$(cat <<EOF | gh copilot explain --prompt "Summarize these PRs into 3 professional bullet points for a project manager:"
-          $PR_DATA
+          RAW_OUTPUT=$(cat <<EOF | gh copilot -p "Summarize all commits and pull requests since the tag:"
+          $LAST_TAG
           EOF
           ) || echo "AI Summary unavailable"
 
