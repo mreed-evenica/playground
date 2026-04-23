@@ -33,20 +33,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Collect and sanitize data (Remove newlines so it's one long string)
-          gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}} | {{end}}' > context.txt
+          # 1. Get the data but keep it structured
+          gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} | Description: {{.body}} {{end}}' > context.txt
           
-          # 2. Clean up any characters that break shell commands (like double quotes)
-          SAFE_CONTEXT=$(cat context.txt | tr -d '"' | tr '\n' ' ')
+          echo "Sending context to Copilot via STDIN..."
 
-          echo "Prompting Copilot..."
+          # 2. Use a PIPE. This bypasses the shell's argument parser entirely.
+          # We use 'explain' which is designed to take the prompt and then wait for input.
+          RAW_OUTPUT=$(cat context.txt | gh copilot explain --prompt "Summarize these changes into 3 professional bullet points for a project manager.") || echo "AI Summary failed"
 
-          # 3. Use the -p flag directly as suggested by the error message
-          # This is the 'official' way to do a non-interactive prompt
-          RAW_OUTPUT=$(gh copilot -p "Summarize these changes into 3 bullets for a project manager: $SAFE_CONTEXT") || echo "AI Summary failed"
+          # 3. Clean the terminal metadata
+          CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "installed successfully" | grep -v "Checking for updates" | sed '/^$/d')
 
-          # 4. Clean and Export
-          CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "installed successfully" | sed '/^$/d')
+          # 4. Final Fail-Safe: If AI is silent, we manually bullet the titles
+          if [ -z "$CLEAN_SUMMARY" ] || [[ "$CLEAN_SUMMARY" == *"failed"* ]]; then
+             echo "AI was silent, creating manual summary from titles..."
+             CLEAN_SUMMARY=$(gh pr list --state merged --limit 3 --json title --template '{{range .}}* {{.title}}{{"\n"}}{{end}}')
+          fi
 
           {
             echo 'AI_SUMMARY<<EOF'
