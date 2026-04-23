@@ -1,0 +1,71 @@
+name: ADO Traceability & Validation Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronized, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  validate-ado-link:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Validate and Link ADO Work Item"
+        uses: actions/github-script@v7
+        env:
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          ADO_ORG_URL: ${{ secrets.ADO_ORG_URL }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const branchName = pr.head.ref;
+            const combinedText = (pr.title + " " + (pr.body || "")).toUpperCase();
+            
+            // 1. Extract ID from PR text or Branch Name
+            let issueId = null;
+            const textMatch = combinedText.match(/AB#(\d+)/);
+            const branchMatch = branchName.match(/(\d+)/);
+
+            if (textMatch) {
+              issueId = textMatch[1];
+            } else if (branchMatch) {
+              issueId = branchMatch[1];
+            }
+
+            if (!issueId) {
+              core.setFailed("❌ No ID found. Please name your branch with the ID or add AB#ID to the PR.");
+              return;
+            }
+
+            // 2. Call ADO API to verify existence
+            const orgUrl = process.env.ADO_ORG_URL;
+            const pat = process.env.ADO_PAT;
+            const auth = Buffer.from(`:${pat}`).toString('base64');
+
+            try {
+              const response = await fetch(`${orgUrl}/_apis/wit/workitems/${issueId}?api-version=7.0`, {
+                headers: { 'Authorization': `Basic ${auth}` }
+              });
+
+              if (!response.ok) {
+                core.setFailed(`❌ Validation Failed: Work Item AB#${issueId} does not exist in ADO (Status: ${response.status}).`);
+                return;
+              }
+
+              const data = await response.json();
+              console.log(`✅ Verified: ${data.fields['System.Title']}`);
+
+              // 3. Auto-link if it's not in the description yet
+              if (!combinedText.includes(`AB#${issueId}`)) {
+                const newBody = `Associated Work Item: AB#${issueId}\n\n${pr.body || ""}`;
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  body: newBody
+                });
+              }
+            } catch (error) {
+              core.setFailed(`❌ API Connection Error: ${error.message}`);
+            }

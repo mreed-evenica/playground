@@ -1,101 +1,101 @@
-name: Auto-Link & Traceability
+# name: Auto-Link & Traceability
 
-on:
-  pull_request:
-    # 'edited' catches changes to the description (Closes #123)
-    types: [opened, edited, synchronized, reopened]
-  # Allows you to manually click "Re-run" from the PR if you link via sidebar
-  workflow_dispatch: 
+# on:
+#   pull_request:
+#     # 'edited' catches changes to the description (Closes #123)
+#     types: [opened, edited, synchronized, reopened]
+#   # Allows you to manually click "Re-run" from the PR if you link via sidebar
+#   workflow_dispatch: 
 
-permissions:
-  pull-requests: write
-  issues: read
-  contents: read
+# permissions:
+#   pull-requests: write
+#   issues: read
+#   contents: read
 
-jobs:
-  link-and-verify:
-    runs-on: ubuntu-latest
-    steps:
-      - name: "Link and Verify"
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const branchName = context.payload.pull_request.head.ref;
-            const prNumber = context.payload.pull_request.number;
-            let currentBody = context.payload.pull_request.body || "";
+# jobs:
+#   link-and-verify:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: "Link and Verify"
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const branchName = context.payload.pull_request.head.ref;
+#             const prNumber = context.payload.pull_request.number;
+#             let currentBody = context.payload.pull_request.body || "";
             
-            // 1. Extract ID from branch
-            const branchMatch = branchName.match(/(?:^|\/|#)(\d+)/);
+#             // 1. Extract ID from branch
+#             const branchMatch = branchName.match(/(?:^|\/|#)(\d+)/);
             
-            if (branchMatch) {
-              const issueId = branchMatch[1];
-              try {
-                // Verify issue exists
-                await github.rest.issues.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueId,
-                });
+#             if (branchMatch) {
+#               const issueId = branchMatch[1];
+#               try {
+#                 // Verify issue exists
+#                 await github.rest.issues.get({
+#                   owner: context.repo.owner,
+#                   repo: context.repo.repo,
+#                   issue_number: issueId,
+#                 });
 
-                // Auto-Link logic (using "Fixes #ID" to trigger native linking)
-                if (!currentBody.includes(`#${issueId}`)) {
-                  await github.rest.pulls.update({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: prNumber,
-                    body: `Fixes #${issueId}\n\n${currentBody}`
-                  });
-                  console.log(`Auto-linked Issue #${issueId}. Waiting 3s for sync...`);
-                  await new Promise(r => setTimeout(r, 3000));
-                }
-              } catch (e) {
-                core.setFailed(`❌ Branch references Issue #${issueId}, but it doesn't exist.`);
-                return;
-              }
-            }
+#                 // Auto-Link logic (using "Fixes #ID" to trigger native linking)
+#                 if (!currentBody.includes(`#${issueId}`)) {
+#                   await github.rest.pulls.update({
+#                     owner: context.repo.owner,
+#                     repo: context.repo.repo,
+#                     pull_number: prNumber,
+#                     body: `Fixes #${issueId}\n\n${currentBody}`
+#                   });
+#                   console.log(`Auto-linked Issue #${issueId}. Waiting 3s for sync...`);
+#                   await new Promise(r => setTimeout(r, 3000));
+#                 }
+#               } catch (e) {
+#                 core.setFailed(`❌ Branch references Issue #${issueId}, but it doesn't exist.`);
+#                 return;
+#               }
+#             }
 
-            // 2. Final Verification (Unique variable name 'verifyQuery')
-            const verifyQuery = `query($owner:String!, $name:String!, $number:Int!) {
-              repository(owner: $owner, name: $name) {
-                pullRequest(number: $number) {
-                  closingIssuesReferences(first: 5) { totalCount }
-                }
-              }
-            }`;
+#             // 2. Final Verification (Unique variable name 'verifyQuery')
+#             const verifyQuery = `query($owner:String!, $name:String!, $number:Int!) {
+#               repository(owner: $owner, name: $name) {
+#                 pullRequest(number: $number) {
+#                   closingIssuesReferences(first: 5) { totalCount }
+#                 }
+#               }
+#             }`;
             
-            const verifyResult = await github.graphql(verifyQuery, {
-              owner: context.repo.owner,
-              name: context.repo.repo,
-              number: prNumber
-            });
+#             const verifyResult = await github.graphql(verifyQuery, {
+#               owner: context.repo.owner,
+#               name: context.repo.repo,
+#               number: prNumber
+#             });
 
-            const linkCount = verifyResult.repository.pullRequest.closingIssuesReferences.totalCount;
+#             const linkCount = verifyResult.repository.pullRequest.closingIssuesReferences.totalCount;
             
-            if (linkCount === 0) {
-               core.setFailed("❌ Traceability Link Not Found. Ensure an issue is linked in the 'Development' sidebar or use the Issue ID in your branch name.");
-            } else {
-              console.log(`✅ Traceability Verified: ${linkCount} issue(s) linked.`);
-            }
+#             if (linkCount === 0) {
+#                core.setFailed("❌ Traceability Link Not Found. Ensure an issue is linked in the 'Development' sidebar or use the Issue ID in your branch name.");
+#             } else {
+#               console.log(`✅ Traceability Verified: ${linkCount} issue(s) linked.`);
+#             }
             
-            // 3. Final Verification: Check for ANY formal links
-            // We use GraphQL to check the 'Development' sidebar (closingIssuesReferences)
-            const query = `query($owner:String!, $name:String!, $number:Int!) {
-              repository(owner: $owner, name: $name) {
-                pullRequest(number: $number) {
-                  closingIssuesReferences(first: 5) { totalCount }
-                }
-              }
-            }`;
+#             // 3. Final Verification: Check for ANY formal links
+#             // We use GraphQL to check the 'Development' sidebar (closingIssuesReferences)
+#             const query = `query($owner:String!, $name:String!, $number:Int!) {
+#               repository(owner: $owner, name: $name) {
+#                 pullRequest(number: $number) {
+#                   closingIssuesReferences(first: 5) { totalCount }
+#                 }
+#               }
+#             }`;
             
-            const result = await github.graphql(query, {
-              owner: context.repo.owner,
-              name: context.repo.repo,
-              number: prNumber
-            });
+#             const result = await github.graphql(query, {
+#               owner: context.repo.owner,
+#               name: context.repo.repo,
+#               number: prNumber
+#             });
 
-            const count = result.repository.pullRequest.closingIssuesReferences.totalCount;
-            if (count === 0) {
-              core.setFailed("❌ Traceability Failed: No valid issue linked. Please name your branch with the Issue ID or link via the Development sidebar.");
-            } else {
-              console.log(`✅ Traceability Verified: ${count} issue(s) linked.`);
-            }
+#             const count = result.repository.pullRequest.closingIssuesReferences.totalCount;
+#             if (count === 0) {
+#               core.setFailed("❌ Traceability Failed: No valid issue linked. Please name your branch with the Issue ID or link via the Development sidebar.");
+#             } else {
+#               console.log(`✅ Traceability Verified: ${count} issue(s) linked.`);
+#             }
