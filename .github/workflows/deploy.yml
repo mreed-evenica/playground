@@ -43,43 +43,57 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_RELEASE_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ADO_PAT: ${{ secrets.ADO_PAT }}
           LANG: en_US.UTF-8
         run: |
           set -euo pipefail
           
-          # 1. Get the boundary (Tag to HEAD)
+          # 1. Get the Boundary
           git fetch --tags --force
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          RANGE="${LAST_TAG:+$LAST_TAG..}HEAD"
-          echo "Analyzing range: $RANGE"
-
-          # 2. Extract PR data and Work Item IDs (AB# references)
-          # We grab the PR number, title, and body for the AI
-          PR_JSON=$(gh pr list --state merged --search "merged:>=$(git log -1 --format=%aI ${LAST_TAG:-HEAD~10})" --json number,title,body)
           
-          # Extract all AB# IDs into a comma-separated list for ADO linking
-          WORK_ITEM_IDS=$(echo "$PR_JSON" | grep -o 'AB#[0-9]\+' | sed 's/AB#//' | sort -u | tr '\n' ',' | sed 's/,$//')
+          # 2. Get PRs merged since the last tag
+          # We use a date-based search to be safer across branches
+          if [ -n "$LAST_TAG" ]; then
+            SINCE_DATE=$(git log -1 --format=%aI $LAST_TAG)
+            PR_JSON=$(gh pr list --state merged --search "merged:>$SINCE_DATE" --json number,title,body)
+          else
+            PR_JSON=$(gh pr list --state merged --limit 5 --json number,title,body)
+          fi
+
+          # Check if PR_JSON is empty or just an empty array []
+          if [ -z "$PR_JSON" ] || [ "$PR_JSON" == "[]" ]; then
+            echo "No PRs found since last tag."
+            echo "AI_SUMMARY=• No new PRs identified since last release." >> "$GITHUB_ENV"
+            echo "WORK_ITEM_IDS=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          # 3. Extract Work Items (AB#IDs)
+          # Use grep -o and ensure we don't fail if none are found
+          WORK_ITEM_IDS=$(echo "$PR_JSON" | grep -o 'AB#[0-9]\+' | sed 's/AB#//' | sort -u | tr '\n' ',' | sed 's/,$//' || echo "")
           echo "Found Work Items: $WORK_ITEM_IDS"
           echo "WORK_ITEM_IDS=$WORK_ITEM_IDS" >> "$GITHUB_ENV"
 
-          # 3. Format PR data for the Agent
-          # We want a list: "PR #123: Title - Body"
-          AGENT_CONTEXT=$(echo "$PR_JSON" | jq -r '.[] | "PR #\(.number): \(.title) | \(.body)"')
+          # 4. Create AI Context
+          # Use jq safely
+          AGENT_CONTEXT=$(echo "$PR_JSON" | jq -r '.[] | "PR #\(.number): \(.title) | \(.body)"' | tr -d '"')
 
-          # 4. Agentic Prompt: Requesting a "Per-PR" breakdown
-          PROMPT="Analyze these PRs. For EACH PR, provide a single line starting with the PR number that describes its specific impact on the production environment.
-          Example format:
-          - PR #7275: Resolves SQL pool exhaustion to prevent OOM crashes.
+          # 5. Autopilot Prompt
+          PROMPT="For each PR provided, write a one-sentence summary of its production impact.
+          Format: - PR #NUMBER: [Summary]
           
           Context:
           $AGENT_CONTEXT"
 
-          # Run Autopilot
+          # Use || true to prevent exit code 1 from the binary if it has a warning
           copilot -p "$PROMPT" --autopilot --allow-all-tools --no-auto-update > raw_output.txt 2>&1 || true
           
-          # Extract the lines that look like our requested format
-          CLEAN_SUMMARY=$(grep -E "^- PR #[0-9]+" raw_output.txt | sed 's/^[[:space:]]*//')
+          # Extract the lines starting with '- PR #'
+          CLEAN_SUMMARY=$(grep -E "^- PR #[0-9]+" raw_output.txt | sed 's/^[[:space:]]*//' || echo "")
+
+          if [ -z "$CLEAN_SUMMARY" ]; then
+             CLEAN_SUMMARY=$(echo "$PR_JSON" | jq -r '.[] | "- PR #\(.number): \(.title)"')
+          fi
 
           {
             echo 'AI_SUMMARY<<EOF'
@@ -92,36 +106,47 @@ jobs:
         env:
           ADO_PAT: ${{ secrets.ADO_PAT }}
           WORK_ITEM_IDS: ${{ env.WORK_ITEM_IDS }}
+          ADO_ORG_URL: ${{ secrets.ADO_ORG_URL }}
         uses: actions/github-script@v7
         with:
           script: |
             const releaseId = "${{ github.event.inputs.release_id }}";
-            const ids = process.env.WORK_ITEM_IDS.split(',');
+            const ids = process.env.WORK_ITEM_IDS.split(',').filter(x => x);
             const auth = Buffer.from(`:${process.env.ADO_PAT}`).toString('base64');
             
             for (const id of ids) {
-              console.log(`Linking AB#${id} to Deployment Ticket ${releaseId}`);
               const url = `${process.env.ADO_ORG_URL}/_apis/wit/workitems/${releaseId}/?api-version=7.0`;
               
-              // This 'add' operation creates a 'Related' link in Azure DevOps
+              // Changed rel to 'System.LinkTypes.Related' to avoid hierarchy conflicts
               const body = [{
                 "op": "add",
                 "path": "/relations/-",
                 "value": {
-                  "rel": "System.LinkTypes.Hierarchy-Forward", // Or 'System.LinkTypes.Related'
+                  "rel": "System.LinkTypes.Related",
                   "url": `${process.env.ADO_ORG_URL}/_apis/wit/workitems/${id}`,
-                  "attributes": { "comment": "Automatically linked via GitHub Deployment" }
+                  "attributes": { "comment": "Linked via GitHub AI Release Automation" }
                 }
               }];
 
-              await fetch(url, {
-                method: 'PATCH',
-                headers: { 
-                  'Authorization': `Basic ${auth}`, 
-                  'Content-Type': 'application/json-patch+json' 
-                },
-                body: JSON.stringify(body)
-              });
+              try {
+                const response = await fetch(url, {
+                  method: 'PATCH',
+                  headers: { 
+                    'Authorization': `Basic ${auth}`, 
+                    'Content-Type': 'application/json-patch+json' 
+                  },
+                  body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                   const error = await response.text();
+                   console.log(`Failed to link AB#${id}: ${error}`);
+                } else {
+                   console.log(`Successfully linked AB#${id}`);
+                }
+              } catch (e) {
+                console.log(`Error linking AB#${id}: ${e.message}`);
+              }
             }
       - name: Sync to Azure DevOps
         if: success()
