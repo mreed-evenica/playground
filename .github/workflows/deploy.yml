@@ -1,34 +1,4 @@
-name: Manual Release
-
-on:
-  workflow_dispatch:
-    inputs:
-      release_id:
-        description: 'ADO Release Work Item ID (e.g., 456)'
-        required: true
-      target_env:
-        description: 'Target Environment'
-        type: choice
-        options: [Production, Staging]
-        default: 'Production'
-
-permissions:
-  contents: read
-  pull-requests: read
-
-jobs:
-  deploy:
-    name: Deploy and Summarize
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.target_env }}
-    
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 
-
-      name: AI-Powered Manual Release
+name: AI-Powered Manual Release
 
 on:
   workflow_dispatch:
@@ -138,39 +108,6 @@ jobs:
 
             try {
               const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Basic ${auth}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(commentBody)
-              });
-
-              if (!response.ok) throw new Error(`ADO API Error: ${response.status}`);
-              console.log("Successfully updated ADO Release Item.");
-            } catch (err) {
-              core.setFailed(`Failed to update ADO: ${err.message}`);
-            }
-      - name: Sync to Azure DevOps
-        if: success()
-        env:
-          ADO_PAT: ${{ secrets.ADO_PAT }}
-          ADO_ORG_URL: ${{ secrets.ADO_ORG_URL }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const releaseId = "${{ github.event.inputs.release_id }}";
-            const summary = process.env.AI_SUMMARY;
-            const orgUrl = process.env.ADO_ORG_URL;
-            const pat = process.env.ADO_PAT;
-            const auth = Buffer.from(`:${pat}`).toString('base64');
-            
-            const commentBody = {
-              text: `### Deployment Successful\n\n**Environment:** ${{ github.event.inputs.target_env }}\n**Triggered By:** ${context.actor}\n\n**AI Summary of Changes:**\n${summary}\n\n*View deployment in [GitHub Actions](${context.payload.repository.html_url}/actions/runs/${context.runId})*`
-            };
-
-            try {
-              const response = await fetch(`${orgUrl}/_apis/wit/workitems/${releaseId}/comments?api-version=7.0-preview.3`, {
                 method: 'POST',
                 headers: {
                   'Authorization': `Basic ${auth}`,
