@@ -33,35 +33,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Gather the PR context
-          git fetch --tags --force
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # 1. Collect the data into a file
+          gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}' > context.txt
           
-          if [ -n "$LAST_TAG" ]; then
-             PR_DATA=$(gh pr list --state merged --search "merged:>=$(git log -1 --format=%aI $LAST_TAG)" --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}')
-          else
-             PR_DATA=$(gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}')
-          fi
+          echo "Prompting Copilot with file context..."
 
-          # 2. Use a Heredoc to pipe the prompt
-          # This prevents the shell from breaking on special characters like '>' or '#'
-          echo "Consulting Copilot CLI via Stream..."
-          
-          RAW_OUTPUT=$(cat <<EOF | gh copilot -p "Summarize all commits and pull requests since the tag:"
-          $LAST_TAG
-          EOF
-          ) || echo "AI Summary unavailable"
+          # 2. Feed the file content to Copilot
+          # Using 'cat' to push the file content into the prompt
+          RAW_OUTPUT=$(gh copilot explain --prompt "Summarize the changes found in this text into 3 bullets: $(cat context.txt)") || echo "AI Summary failed"
 
-          # 3. Clean and export
-          CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "Checking for updates" | grep -v "installed successfully" | sed '/^$/d')
-
-          # Fallback if the CLI still rejects the stream
-          if [[ "$CLEAN_SUMMARY" == *"unavailable"* ]] || [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="Deployment Summary:
-            - Multi-region OAuth implemented (60% latency reduction)
-            - SQL Connection Pool leak resolved (System stability)
-            - ISO-27001 Security Headers standardized (Compliance)"
-          fi
+          # 3. Clean and Export
+          CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | grep -v "installed successfully" | sed '/^$/d')
 
           {
             echo 'AI_SUMMARY<<EOF'
