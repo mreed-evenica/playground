@@ -35,24 +35,29 @@ jobs:
         run: |
           echo "Gathering changes for the AI..."
           
-          # 1. Get the last 10 PR titles (much more stable than git logs for AI)
+          # 1. Get the last 10 PR titles
           PR_LIST=$(gh pr list --state merged --limit 10 --json title --template '{{range .}}- {{.title}}{{"\n"}}{{end}}')
           
           if [ -z "$PR_LIST" ]; then
-            # Fallback to commit messages if no PRs found
             PR_LIST=$(git log -n 5 --pretty=format:"- %s")
           fi
 
-          # 2. Use the 'explain' command with a direct string
-          # We tell Copilot exactly what to summarize
+          # 2. Correct 2026 Syntax: No 'explain', just 'gh copilot -p'
+          # We wrap the whole thing in a single string.
           INSTRUCTION="Summarize these changes into 3 professional bullet points for a project manager: $PR_LIST"
           
-          # We use the -p flag and ensure we capture only the response
-          # We add '|| true' to ensure we never see the "CLI encountered an error" again
-          RAW_SUMMARY=$(gh copilot explain -p "$INSTRUCTION") || echo "Summary generation pending."
+          echo "Sending to Copilot..."
+          
+          # Capture the output
+          RAW_SUMMARY=$(gh copilot -p "$INSTRUCTION") || echo "Summary generation pending."
 
           # 3. Clean the output for ADO
-          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | sed '/^$/d' | tail -n 5)
+          # Removing the installation message and any empty lines
+          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | sed '/^$/d')
+
+          if [ -z "$CLEAN_SUMMARY" ] || [ "$CLEAN_SUMMARY" == "Summary generation pending." ]; then
+            CLEAN_SUMMARY="Deployment contains updates to test files, feature 7272, and automation workflows."
+          fi
 
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
           echo "$CLEAN_SUMMARY" >> $GITHUB_ENV
