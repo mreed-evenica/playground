@@ -35,9 +35,9 @@ jobs:
         run: |
           echo "Copilot is analyzing changes natively..."
           
-          # Use the base 'copilot' command for free-form prompts.
-          # We pass the instruction directly to the agent.
-          RAW_SUMMARY=$(copilot -p "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value.")
+          # Use gh copilot without the 'explain' or 'suggest' subcommands.
+          # The -p flag triggers the agent to perform the task described in the string.
+          RAW_SUMMARY=$(gh copilot -p "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value.")
           
           if [ -z "$RAW_SUMMARY" ]; then
             RAW_SUMMARY="No automated summary could be generated for this deployment."
@@ -46,7 +46,6 @@ jobs:
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
           echo "$RAW_SUMMARY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-
       - name: Execute Deployment
         run: |
           echo "Deploying to ${{ github.event.inputs.target_env }}..."
