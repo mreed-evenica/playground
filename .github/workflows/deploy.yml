@@ -1,10 +1,10 @@
-name: AI-Powered Manual Release
+name: Manual Release
 
 on:
   workflow_dispatch:
     inputs:
       release_id:
-        description: 'ADO Release Work Item ID (e.g., 7273)'
+        description: 'ADO Release Work Item ID (e.g., 456)'
         required: true
       target_env:
         description: 'Target Environment'
@@ -65,12 +65,6 @@ jobs:
             echo "$CLEAN_SUMMARY"
             echo 'EOF'
           } >> "$GITHUB_ENV"
-
-      - name: Execute Deployment
-        run: |
-          echo "Deploying..."
-          sleep 2
-
       - name: Sync to Azure DevOps
         if: success()
         env:
