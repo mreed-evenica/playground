@@ -33,31 +33,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Gathering changes for the AI..."
+          git fetch --tags --force
+          # Find the most recent tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
-          # Get PR titles
-          PR_LIST=$(gh pr list --state merged --limit 10 --json title --template '{{range .}}- {{.title}}{{"\n"}}{{end}}')
-          
-          if [ -z "$PR_LIST" ]; then
-            PR_LIST=$(git log -n 5 --pretty=format:"- %s")
+          if [ -z "$LAST_TAG" ]; then
+            echo "No tags found. Collecting recent PRs."
+            PR_LIST=$(gh pr list --state merged --limit 10 --json title,body --template '{{range .}}- {{.title}}: {{.body}}{{"\n"}}{{end}}')
+          else
+            echo "Last release was $LAST_TAG. Finding PRs merged since then..."
+            
+            # 1. Get the list of merge commit SHAs between the last tag and current HEAD
+            # 2. Use those SHAs to fetch the specific PR details
+            SHAS=$(git log $LAST_TAG..HEAD --merges --format=%H)
+            
+            PR_LIST=""
+            for sha in $SHAS; do
+              PR_DATA=$(gh pr list --search "$sha" --state merged --json title,body --template '{{range .}}- {{.title}}: {{.body}}{{"\n"}}{{end}}')
+              PR_LIST="$PR_LIST$PR_DATA"
+            done
           fi
 
-          # Native 2026 Prompting
-          INSTRUCTION="Summarize these git changes into a professional 3-bullet list for a project manager: $PR_LIST"
-          
-          echo "Requesting Copilot Summary..."
-          # Capture output and redirect stderr to stdout to avoid silent crashes
-          RAW_SUMMARY=$(gh copilot -p "$INSTRUCTION" 2>&1) || echo "AI generation pending"
-
-          # Clean the output
-          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | sed '/^$/d')
-
-          # Simplified check to prevent YAML/Bash parsing issues
-          if [[ "$CLEAN_SUMMARY" == *"error"* ]] || [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="Recent updates include:
-            - Feature 7272: ADO branch integration and creation
-            - Workflow improvements for auto-linking and test files
-            - General maintenance and bug fixes"
+          if [ -z "$PR_LIST" ]; then
+             CLEAN_SUMMARY="No new pull requests identified since $LAST_TAG."
+          else
+             INSTRUCTION="Summarize these merged pull requests into a professional 3-bullet list for a project manager. Focus on business value and impact: $PR_LIST"
+             RAW_SUMMARY=$(gh copilot -p "$INSTRUCTION") || echo "AI generation pending"
+             CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | sed '/^$/d')
           fi
 
           {
