@@ -31,33 +31,29 @@ jobs:
       - name: Generate AI Release Summary
         id: ai
         env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Fetch tags to ensure comparison baseline
           git fetch --tags --force
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
+          echo "Generating summary..."
+
+          # Using the 2026 'summarize' command which is built for automation.
+          # We compare the last tag to the current HEAD.
           if [ -z "$LAST_TAG" ]; then
-            PROMPT="Summarize all commits in this repository into a 3-bullet point list for a project manager. Focus on business value."
+            # If no tags, summarize the last 10 commits
+            gh copilot summarize HEAD~10..HEAD > summary.txt || echo "Summary failed" > summary.txt
           else
-            PROMPT="Summarize all changes between $LAST_TAG and HEAD into a 3-bullet point list for a project manager. Focus on business value."
+            # Summarize the diff between the last release and now
+            gh copilot summarize $LAST_TAG..HEAD > summary.txt || echo "Summary failed" > summary.txt
           fi
-
-          # 2. Force the 'Yes' confirmation through a pipe
-          # The 'yes' command continuously sends 'y' to the CLI to bypass prompts
-          RAW_SUMMARY=$(yes | gh copilot -p "$PROMPT")
           
-          # 3. Clean the output (Copilot CLI sometimes adds terminal headers)
-          # We remove lines starting with '?' or '✓' to keep it professional for ADO
-          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v '?' | grep -v '✓' | sed '1,2d')
-
-          if [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="Automated summary generation returned no results."
-          fi
-
-          echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
-          echo "$CLEAN_SUMMARY" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          # Load the file into the environment variable
+          {
+            echo 'AI_SUMMARY<<EOF'
+            cat summary.txt
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
 
       - name: Sync to Azure DevOps
         if: success()
