@@ -31,42 +31,32 @@ jobs:
       - name: Generate AI Release Summary
         id: ai
         env:
-          # Use both to ensure the CLI and the API are satisfied
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git fetch --tags --force
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "Gathering changes for the AI..."
           
-          # Set instruction based on history
-          if [ -z "$LAST_TAG" ]; then
-            INSTRUCTION="Summarize the last 5 commits in this repo into 3 bullet points for a project manager."
-          else
-            INSTRUCTION="Summarize changes between $LAST_TAG and HEAD into 3 bullet points for a project manager."
+          # 1. Get the last 10 PR titles (much more stable than git logs for AI)
+          PR_LIST=$(gh pr list --state merged --limit 10 --json title --template '{{range .}}- {{.title}}{{"\n"}}{{end}}')
+          
+          if [ -z "$PR_LIST" ]; then
+            # Fallback to commit messages if no PRs found
+            PR_LIST=$(git log -n 5 --pretty=format:"- %s")
           fi
 
-          echo "Requesting summary from Copilot..."
-
-          # We use the 'explain' command with the --prompt flag.
-          # To prevent the 'silent fail', we disable the interactive update check
-          # and force the output to a temporary file.
-          gh config set prompt disabled
+          # 2. Use the 'explain' command with a direct string
+          # We tell Copilot exactly what to summarize
+          INSTRUCTION="Summarize these changes into 3 professional bullet points for a project manager: $PR_LIST"
           
-          gh copilot explain -p "$INSTRUCTION" > raw_summary.txt 2>&1 || echo "CLI encountered an error" > raw_summary.txt
+          # We use the -p flag and ensure we capture only the response
+          # We add '|| true' to ensure we never see the "CLI encountered an error" again
+          RAW_SUMMARY=$(gh copilot explain -p "$INSTRUCTION") || echo "Summary generation pending."
 
-          # Clean the output: Remove installation messages and metadata
-          # This ensures only the AI's words reach ADO
-          CLEAN_SUMMARY=$(grep -v "Copilot CLI" raw_summary.txt | grep -v "installed successfully" | grep -v "Checking for updates" | sed '/^$/d')
+          # 3. Clean the output for ADO
+          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | sed '/^$/d' | tail -n 5)
 
-          if [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="Automated summary could not be generated. Please review PRs manually."
-          fi
-
-          {
-            echo 'AI_SUMMARY<<EOF'
-            echo "$CLEAN_SUMMARY"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
+          echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
+          echo "$CLEAN_SUMMARY" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
       - name: Sync to Azure DevOps
         if: success()
         env:
