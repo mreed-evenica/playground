@@ -33,49 +33,34 @@ jobs:
         with:
           node-version: 22
 
+      # 1. Ensure the binary is installed
       - name: Install GitHub Copilot CLI
         run: npm i -g @github/copilot
 
-      - name: Generate AI Release Summary (Agent Mode)
+      # 2. Run with the "Agentic" Configuration
+      - name: Generate AI Release Summary
         id: ai
         env:
-          # Note: COPILOT_GITHUB_TOKEN is the standard for the 2026 binary
+          # Use BOTH for maximum compatibility in 2026
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           
-          # 1. Gather the PR context
+          # Gather the data
           PR_DATA=$(gh pr list --state merged --limit 3 --json title,body --template '{{range .}}PR: {{.title}} - {{.body}}{{"\n"}}{{end}}')
 
-          # 2. Construct the Agentic Prompt
-          # We tell the agent exactly what tools/context it has
-          PROMPT="You are a Release Manager Agent. 
-          Context: 
-          $PR_DATA
-          
-          Task:
-          Summarize these changes into 3 professional, punchy bullet points for an Executive Project Manager.
-          Focus on business impact. Output ONLY the bullet points, no preamble."
+          # Construct the command
+          # < /dev/null is CRITICAL to bypass the 'Enter to continue' prompt
+          # --allow-all-tools is CRITICAL to avoid Exit Code 4
+          SUMMARY_OUTPUT=$(copilot --prompt "Summarize these PRs into 3 professional bullets for a manager: $PR_DATA" --allow-all-tools < /dev/null)
 
-          echo "Launching Copilot Agent..."
-
-          # 3. The 'Headless' Execution Pattern
-          # --allow-all-paths: Lets the agent verify files if mentioned in PRs
-          # --allow-all-tools: Lets the agent use git/ls if needed
-          # < /dev/null: Forces non-interactive mode
-          RAW_OUTPUT=$(copilot --prompt "$PROMPT" --allow-all-tools --allow-all-paths < /dev/null)
-          
-          # 4. Clean the 'Agent Thinking' output
-          # 2026 Agent mode often outputs its 'plan'. We only want the final result.
-          CLEAN_SUMMARY=$(echo "$RAW_OUTPUT" | sed -n '/PR:/,$p' | grep -v "PR:" | sed '/^$/d' | head -n 5)
-
-          if [ -z "$CLEAN_SUMMARY" ]; then
-            CLEAN_SUMMARY="• Successfully deployed multi-region auth and database stability fixes."
-          fi
+          # Strip the agent's 'thinking' logs to get just the bullets
+          CLEAN_SUMMARY=$(echo "$SUMMARY_OUTPUT" | grep -E "^\*|^-" | head -n 5)
 
           {
             echo 'AI_SUMMARY<<EOF'
-            echo "$CLEAN_SUMMARY"
+            echo "${CLEAN_SUMMARY:-No summary generated. Check PR history.}"
             echo 'EOF'
           } >> "$GITHUB_ENV"
       - name: Sync to Azure DevOps
