@@ -38,23 +38,27 @@ jobs:
           
           echo "Generating summary..."
 
-          # Using the 2026 'summarize' command which is built for automation.
-          # We compare the last tag to the current HEAD.
+          # We follow the CLI's hint: Use the -p flag and tell the agent exactly what to summarize.
           if [ -z "$LAST_TAG" ]; then
-            # If no tags, summarize the last 10 commits
-            gh copilot summarize HEAD~10..HEAD > summary.txt || echo "Summary failed" > summary.txt
+            # Summarize the last 10 commits if no tags exist
+            RAW_SUMMARY=$(gh copilot -p "Summarize the changes in the git range HEAD~10..HEAD")
           else
-            # Summarize the diff between the last release and now
-            gh copilot summarize $LAST_TAG..HEAD > summary.txt || echo "Summary failed" > summary.txt
+            # Summarize since the last tag
+            RAW_SUMMARY=$(gh copilot -p "Summarize the changes in the git range $LAST_TAG..HEAD")
           fi
           
-          # Load the file into the environment variable
+          # Clean up the output to remove the CLI's installation success messages
+          CLEAN_SUMMARY=$(echo "$RAW_SUMMARY" | grep -v "installed successfully" | grep -v "Checking for updates")
+
+          if [ -z "$CLEAN_SUMMARY" ]; then
+            CLEAN_SUMMARY="No automated summary could be generated for this deployment."
+          fi
+
           {
             echo 'AI_SUMMARY<<EOF'
-            cat summary.txt
+            echo "$CLEAN_SUMMARY"
             echo 'EOF'
           } >> "$GITHUB_ENV"
-
       - name: Sync to Azure DevOps
         if: success()
         env:
