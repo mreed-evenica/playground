@@ -42,7 +42,7 @@ jobs:
         id: ai
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           
