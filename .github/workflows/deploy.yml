@@ -35,14 +35,16 @@ jobs:
         run: |
           echo "Copilot is analyzing changes natively..."
           
-          # Native 2026 Syntax: uses the built-in gh copilot command
-          # The --prompt flag ensures non-interactive execution
-          RAW_SUMMARY=$(gh copilot explain --prompt "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value." --yes)
+          # 2026 Native Syntax: Use -p for a single-shot non-interactive prompt.
+          # We wrap the command in a variable to capture the AI response.
+          RAW_SUMMARY=$(gh copilot explain -p "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value.")
           
+          # If the summary is empty, provide a fallback message
           if [ -z "$RAW_SUMMARY" ]; then
-            RAW_SUMMARY="No automated summary could be generated."
+            RAW_SUMMARY="No automated summary could be generated for this deployment."
           fi
 
+          # Safe way to save multi-line strings to GITHUB_ENV
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
           echo "$RAW_SUMMARY" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
