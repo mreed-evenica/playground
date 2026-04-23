@@ -31,19 +31,27 @@ jobs:
       - name: Generate AI Release Summary
         id: ai
         env:
-          # The agent needs this to authenticate and read repo data
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Copilot is analyzing changes natively..."
+          # 1. Ensure we have tags available for comparison
+          git fetch --tags --force
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
-          # Use --no-interactive to force the agent to run without user input.
-          # Use -p to provide the specific instruction.
-          # We use || true to prevent the whole job from crashing if the AI fails.
-          RAW_SUMMARY=$(gh copilot -p "Summarize all git commits and PRs since the last tag into a professional, 3-bullet point list for a project manager. Focus on business value." --no-interactive) || echo "AI Summary generation failed."
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous tags found. Summarizing all commits instead."
+            PROMPT="Summarize all commits in this repository into a 3-bullet point list for a project manager. Focus on business value."
+          else
+            echo "Summarizing changes since $LAST_TAG"
+            PROMPT="Summarize all changes between $LAST_TAG and HEAD into a 3-bullet point list for a project manager. Focus on business value."
+          fi
+
+          # 2. Native 2026 Programmatic Command
+          # Using only -p. The CLI handles the 'non-interactive' state automatically.
+          RAW_SUMMARY=$(gh copilot -p "$PROMPT")
           
-          if [ -z "$RAW_SUMMARY" ] || [ "$RAW_SUMMARY" == "AI Summary generation failed." ]; then
-            RAW_SUMMARY="No automated summary could be generated for this deployment. Please check the PR history manually."
+          # 3. Handle output
+          if [ -z "$RAW_SUMMARY" ]; then
+            RAW_SUMMARY="Automated summary generation returned no results."
           fi
 
           echo "AI_SUMMARY<<EOF" >> $GITHUB_ENV
